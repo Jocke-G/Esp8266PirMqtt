@@ -5,11 +5,12 @@
 #include "defines.h"
 
 void mqttDataCb(char* topic, byte* payload, unsigned int length);
-void mqttConnectedCb();
 void mqttDisconnectedCb();
 void processNet();
 
 boolean pendingDisconnect = true;
+int lastMillis;
+bool activeState = LOW;
 
 WiFiClient wclient;
 PubSubClient client(MQTTip, MQTTport, mqttDataCb, wclient);
@@ -17,28 +18,23 @@ PubSubClient client(MQTTip, MQTTport, mqttDataCb, wclient);
 // #################### mqtt ####################
 
 void mqttDataCb(char* topic, byte* payload, unsigned int length) {
-  char* message = (char *) payload;
-  message[length] = 0;
-
-  if (strcmp(message, "on")) {
-    digitalWrite(LED_BUILTIN, HIGH);
-  } else if (strcmp(message, "off")) {
-    digitalWrite(LED_BUILTIN, LOW);
-  }
 }
 
 void mqttConnectedCb() {
-  client.subscribe("testtopic/sub", MQTTsubQos);
   client.publish("testtopic/connected", "connected");
 }
 
 void mqttDisconnectedCb() {  
-
 }
 
 // #################### setup e loop ####################
 
 void setup() {
+  pinMode(PirSensorPin, INPUT);
+  digitalWrite(LED_BUILTIN, LOW);
+
+  Serial.begin(115200);
+
   ArduinoOTA.setHostname(MQTTid);
 
   WiFi.mode(WIFI_STA);
@@ -54,7 +50,7 @@ void processNet() {
     if (client.connected()) {
       client.loop();
     } else {
-      if (client.connect(MQTTid, MQTTuser, MQTTpsw)) {
+      if (client.connect(MQTTid, MQTTuser, MQTTpsw, "testtopic/out", 1, 0, "Out")) {
           pendingDisconnect = false;
           mqttConnectedCb();
       }
@@ -71,4 +67,27 @@ void processNet() {
 
 void loop() {
   processNet();
+
+  long state = digitalRead(PirSensorPin);
+  Serial.print(millis());
+  Serial.print(" ");
+  int nextSend = lastMillis + 3 * 1000;
+  Serial.print(nextSend);
+  Serial.print(" ");
+  if (state == HIGH) {
+    Serial.print("HIGH");
+    if(nextSend < millis()) {
+      Serial.print(" SEND");
+      client.publish("testtopic/motion", "motion");
+      activeState = HIGH;
+    }
+    lastMillis = millis();
+  } else {
+    Serial.print("LOW");
+    if(nextSend > millis() && activeState == HIGH) {
+      activeState = LOW;
+      client.publish("testtopic/nomotion", "nomotion");
+    }
+  }
+    Serial.println("");
 }
